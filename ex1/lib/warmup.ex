@@ -161,12 +161,7 @@ defmodule Warmup do
   defp do_has0(f, seen) do
     f_hash = :erlang.phash2(f)
 
-    seen_f_before =
-      Enum.any?(seen, fn g_hash ->
-        f_hash === g_hash
-      end)
-
-    case seen_f_before do
+    case Enum.member?(seen, f_hash) do
       true -> false
       _ -> do_has0(f.(), [f_hash | seen])
     end
@@ -197,12 +192,7 @@ defmodule Warmup do
   defp do_sum(f, acc, seen) do
     f_hash = :erlang.phash2(f)
 
-    seen_f_before =
-      Enum.any?(seen, fn g_hash ->
-        f_hash === g_hash
-      end)
-
-    case seen_f_before do
+    case Enum.member?(seen, f_hash) do
       true -> acc
       _ -> do_sum(f.(), acc, [f_hash | seen])
     end
