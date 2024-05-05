@@ -60,4 +60,26 @@ defmodule WarmupTest do
     assert not Warmup.same?({:ok, 2}, {:ok, {}})
   end
 
+  defmodule Rec do
+    def l0() do [1, &Rec.l0/0] end
+    def l1() do [1, 2, &Rec.l2/0] end
+    def l2() do [3, 0, &Rec.l1/0] end
+  end
+
+  test "has0" do
+    assert not Warmup.has0(Rec.l0())
+    assert Warmup.has0(Rec.l1())
+    assert Warmup.has0(Rec.l2())
+    assert Warmup.has0(&Warmup.alternating_list/0)
+    assert not Warmup.has0(&Warmup.one_two_l2/0)
+    assert not Warmup.has0(&Warmup.one_neg_one_l2/0)
+  end
+
+  test "sum of corecursive lists" do
+    assert Warmup.sum(&Rec.l0/0) === 1
+    assert Warmup.sum(&Rec.l1/0) === 6
+    assert Warmup.sum(&Warmup.alternating_list/0) === 0
+    assert Warmup.sum(&Warmup.one_two_l2/0) === 3
+    assert Warmup.sum(&Warmup.one_neg_one_l2/0) === 0
+  end
 end

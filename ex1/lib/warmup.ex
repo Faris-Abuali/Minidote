@@ -134,15 +134,15 @@ defmodule Warmup do
 
   # Unsurprisingly, Dialyzer flags most functions in the Corecursion section as having non-sensical types.
   def alternating_list do
-    [1, 0, -1 | &alternating_list/0]
+    [1, 0, -1 | &Warmup.alternating_list/0]
   end
 
   def one_two_l2 do
-    [1, 2, &one_neg_one_l2/0]
+    [1, 2, &Warmup.one_neg_one_l2/0]
   end
 
   def one_neg_one_l2 do
-    [1, -1 | &one_neg_one_l2/0]
+    [1, -1 | &Warmup.one_neg_one_l2/0]
   end
 
   @spec has0(list(any())) :: boolean()
@@ -155,6 +155,10 @@ defmodule Warmup do
   end
 
   defp do_has0([f | _], seen) do
+    do_has0(f, seen)
+  end
+
+  defp do_has0(f, seen) do
     f_hash = :erlang.phash2(f)
 
     seen_f_before =
@@ -168,9 +172,15 @@ defmodule Warmup do
     end
   end
 
-  # NOTE: I can't think of an argument as to _why_ this can't terminate, assuming
-  # we follow the principle of "corecursive functions terminate once a function call was seen previously"
+  # NOTE: Assuming we follow the principle of "corecursive functions terminate once a function call was seen previously"
   # unless it's somehow possible to add an infinite number of distinct functions to the corecursive list.
+  @spec sum((-> nonempty_maybe_improper_list())) :: integer() | no_return()
+  def sum(f) when is_function(f) do
+    # Rather than accepting a list directly, we accept the function that produces the list and consider it seen.
+    # This is what caused sum(L1) = 2 where L1 = [1, L1].
+    do_sum(f.(), 0, [:erlang.phash2(f)])
+  end
+
   @spec sum(nonempty_maybe_improper_list()) :: integer() | no_return()
   def sum(xs) do
     do_sum(xs, 0, [])
@@ -181,6 +191,10 @@ defmodule Warmup do
   end
 
   defp do_sum([f | _], acc, seen) do
+    do_sum(f, acc, seen)
+  end
+
+  defp do_sum(f, acc, seen) do
     f_hash = :erlang.phash2(f)
 
     seen_f_before =
