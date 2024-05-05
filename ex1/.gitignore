@@ -25,3 +25,5 @@ ex1-*.tar
 # Temporary files, for example, from tests.
 /tmp/
 .DS_Store
+/.elixir_ls/
+/.vscode/
