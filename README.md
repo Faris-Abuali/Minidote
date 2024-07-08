@@ -4,4 +4,3 @@
 
 - Mahmoud Hamido
 - Faris Abuali
-- Omar Yasin
