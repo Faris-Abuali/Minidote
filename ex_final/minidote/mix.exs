@@ -26,7 +26,9 @@ defmodule Minidote.MixProject do
   defp deps do
     [
       {:antidote_crdt, "~> 0.1.3"},
-      {:meck, "~> 0.9.2"}
+      {:meck, "~> 0.9.2"},
+      {:dialyxir, "~> 1.4.3", only: [:dev, :test], runtime: false},
+      {:gradient, github: "esl/gradient", only: [:dev], runtime: false}
       # {:dep_from_hexpm, "~> 0.3.0"},
       # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
     ]
