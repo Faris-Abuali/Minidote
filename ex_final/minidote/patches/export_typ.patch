@@ -1,4 +1,4 @@
---- deps/antidote_crdt/src/antidote_crdt.erl	2024-07-09 18:11:24
+--- ./deps/antidote_crdt/src/antidote_crdt.erl	2024-07-09 18:11:24
 +++ ./patches/antidote_crdt.erl	2024-07-09 18:12:33
 @@ -73,6 +73,7 @@
  -type internal_crdt() :: term().
