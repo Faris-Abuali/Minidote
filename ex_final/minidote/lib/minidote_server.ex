@@ -16,19 +16,17 @@ defmodule Minidote.Server do
   #        }
 
   @opaque state() :: %{
-           required(:broadcast_layer) => any(),
-           required(:key_value_store) => %{optional(Minidote.key()) => :antidote_crdt.crdt()},
-           required(:pending_requests) =>
-             MapSet.t({Process.dest(), Minidote.clock(), [{Minidote.key(), atom(), any()}]}),
-           required(:vc) => Vectorclock.t()
-         }
-
+            required(:broadcast_layer) => any(),
+            required(:key_value_store) => %{optional(Minidote.key()) => :antidote_crdt.crdt()},
+            required(:pending_requests) =>
+              MapSet.t({Process.dest(), Minidote.clock(), [{Minidote.key(), atom(), any()}]}),
+            required(:vc) => Vectorclock.t()
+          }
 
   def start_link(server_name) do
     # if you need arguments for initialization, change here
     GenServer.start_link(Minidote.Server, [], name: server_name)
   end
-
 
   @spec init(any()) :: {:ok, state()}
   @impl true
@@ -140,7 +138,7 @@ defmodule Minidote.Server do
 
   @spec apply_effects([{Minidote.key(), :antidote_crdt.effect()}], state()) :: state()
   defp apply_effects(key_effect_pairs, state) do
-key_updated_crdt_pairs =
+    key_updated_crdt_pairs =
       for {key = {_, crdt_type, _}, effect} <- key_effect_pairs do
         {:ok, updated_crdt} =
           :antidote_crdt.update(
@@ -155,7 +153,7 @@ key_updated_crdt_pairs =
     updated_kv_store =
       List.foldl(key_updated_crdt_pairs, state.key_value_store, fn {key, updated_crdt},
                                                                    kv_store ->
-        Map.put(kv_store, key, updated_crdt)
+        %{kv_store | key => updated_crdt}
       end)
 
     %{state | :key_value_store => updated_kv_store}

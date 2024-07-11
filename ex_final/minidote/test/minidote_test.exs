@@ -26,21 +26,38 @@ defmodule MinidoteTest do
   end
 
   test "simple counter replication" do
-    (nodes = [dc1, dc2]) = [TestSetup.start_node(:t1_minidote1), TestSetup.start_node(:t1_minidote2)]
+    (nodes = [dc1, dc2]) = [
+      TestSetup.start_node(:t1_minidote1),
+      TestSetup.start_node(:t1_minidote2)
+    ]
+
     # debug messages:
     TestSetup.mock_link_layer(nodes, %{:debug => true})
 
     # increment counter by 42
     # When using Erlang rpc calls, the module name needs to be specified. Elixir modules are converted into Erlang modules via a $ModuleName -> :"Elixir.ModuleName" transformation
     # TODO FOR TEMPLATE: check if Elixir has native rpc calls
-    {:ok, vc} = :rpc.call(dc1, :"Elixir.Minidote", :update_objects, [[{{"key", :antidote_crdt_counter_pn, "simple counter replication"}, :increment, 42}], :ignore])
+    {:ok, vc} =
+      :rpc.call(dc1, :"Elixir.Minidote", :update_objects, [
+        [{{"key", :antidote_crdt_counter_pn, "simple counter replication"}, :increment, 42}],
+        :ignore
+      ])
+
     # reading on the same replica returns 42
-    {:ok, [{{"key", :antidote_crdt_counter_pn, "simple counter replication"}, 42}], _vc2} = :rpc.call(dc1, :"Elixir.Minidote", :read_objects, [[{"key", :antidote_crdt_counter_pn, "simple counter replication"}], vc])
+    {:ok, [{{"key", :antidote_crdt_counter_pn, "simple counter replication"}, 42}], _vc2} =
+      :rpc.call(dc1, :"Elixir.Minidote", :read_objects, [
+        [{"key", :antidote_crdt_counter_pn, "simple counter replication"}],
+        vc
+      ])
+
     # reading on the other replica returns 42
-    {:ok, [{{"key", :antidote_crdt_counter_pn, "simple counter replication"}, 42}], _vc2} = :rpc.call(dc2, :"Elixir.Minidote", :read_objects, [[{"key", :antidote_crdt_counter_pn, "simple counter replication"}], vc])
+    {:ok, [{{"key", :antidote_crdt_counter_pn, "simple counter replication"}, 42}], _vc2} =
+      :rpc.call(dc2, :"Elixir.Minidote", :read_objects, [
+        [{"key", :antidote_crdt_counter_pn, "simple counter replication"}],
+        vc
+      ])
 
     # tear down all nodes
     [TestSetup.stop_node(dc1), TestSetup.stop_node(dc2)]
   end
-
 end
