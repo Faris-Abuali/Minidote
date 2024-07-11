@@ -15,12 +15,12 @@ defmodule Minidote.Server do
   #          # should be CausalBroadcastWaiting/CausalBroadcastNonWaiting
   #        }
 
-  @typep state() :: %{
-           broadcast_layer: pid(),
-           key_value_store: %{optional(Minidote.key()) => :antidote_crdt.crdt()},
-           pending_requests:
+  @opaque state() :: %{
+           required(:broadcast_layer) => any(),
+           required(:key_value_store) => %{optional(Minidote.key()) => :antidote_crdt.crdt()},
+           required(:pending_requests) =>
              MapSet.t({Process.dest(), Minidote.clock(), [{Minidote.key(), atom(), any()}]}),
-           vc: Vectorclock.t()
+           required(:vc) => Vectorclock.t()
          }
 
 
@@ -55,7 +55,7 @@ defmodule Minidote.Server do
   def handle_call(request = {:read_objects, objects, caller_clock}, from, state) do
     current_clock = state.vc
 
-    if Vectorclock.leq(caller_clock, current_clock) do
+    if caller_clock == :ignore || Vectorclock.leq(caller_clock, current_clock) do
       results =
         for key = {_, crdt_type, _} <- objects do
           case state.key_value_store[key] do
