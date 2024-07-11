@@ -35,9 +35,9 @@ defmodule MinidoteTest do
     # TODO FOR TEMPLATE: check if Elixir has native rpc calls
     {:ok, vc} = :rpc.call(dc1, :"Elixir.Minidote", :update_objects, [[{{"key", :antidote_crdt_counter_pn, "simple counter replication"}, :increment, 42}], :ignore])
     # reading on the same replica returns 42
-    {:ok, [{{"key", :antidote_crdt_counter_pn, "simple counter replication"}, 42}], _vc2} = :rpc.call(dc1, :"Elixir.Minidote", :read_objects, [[{"key", :antidote_crdt_counter_pn, "counter_test_local"}], vc])
+    {:ok, [{{"key", :antidote_crdt_counter_pn, "simple counter replication"}, 42}], _vc2} = :rpc.call(dc1, :"Elixir.Minidote", :read_objects, [[{"key", :antidote_crdt_counter_pn, "simple counter replication"}], vc])
     # reading on the other replica returns 42
-    {:ok, [{{"key", :antidote_crdt_counter_pn, "simple counter replication"}, 42}], _vc2} = :rpc.call(dc2, :"Elixir.Minidote", :read_objects, [[{"key", :antidote_crdt_counter_pn, "counter_test_local"}], vc])
+    {:ok, [{{"key", :antidote_crdt_counter_pn, "simple counter replication"}, 42}], _vc2} = :rpc.call(dc2, :"Elixir.Minidote", :read_objects, [[{"key", :antidote_crdt_counter_pn, "simple counter replication"}], vc])
 
     # tear down all nodes
     [TestSetup.stop_node(dc1), TestSetup.stop_node(dc2)]

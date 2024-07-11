@@ -27,6 +27,11 @@ defmodule Vectorclock do
     Enum.all?(vc1, fn {key, value1} -> value1 <= get(vc2, key) end)
   end
 
+  @spec lt(Vectorclock.t(), Vectorclock.t()) :: boolean()
+  def lt(vc1, vc2) do
+    Vectorclock.leq(vc1, vc2) and not Vectorclock.eq(vc1, vc2)
+  end
+
   @spec merge(Vectorclock.t(), Vectorclock.t()) :: Vectorclock.t()
   def merge(vc1, vc2) do
     Map.merge(vc1, vc2, fn _key, v1, v2 -> max(v1, v2) end)

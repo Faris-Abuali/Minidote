@@ -12,7 +12,7 @@ defmodule Minidote.Application do
     change_cookie()
 
     children = [
-      # Starts a worker by calling: Minidote.Worker.start_link(Minidote.Server)
+      # Starts a worker by calling: Minidote.Server.start_link(Minidote.Server)
       # The minidote server will then be locally available under the name Minidote.Server
       # Example call:
       # GenServer.call(Minidote.Server, :do_something)
