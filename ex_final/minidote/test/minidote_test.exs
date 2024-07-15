@@ -60,4 +60,33 @@ defmodule MinidoteTest do
     # tear down all nodes
     [TestSetup.stop_node(dc1), TestSetup.stop_node(dc2)]
   end
+
+  test "sample replication test" do
+    key = {"location", :antidote_crdt_set_go, "mensa"}
+
+    (nodes = [dc1, dc2, dc3]) = [
+      TestSetup.start_node(:minidote1),
+      TestSetup.start_node(:minidote2),
+      TestSetup.start_node(:minidote3)
+    ]
+
+    TestSetup.mock_link_layer(nodes, %{:debug => true})
+
+    # Each replica makes some update
+    {:ok, vc1} = :rpc.call(dc1, :"Elixir.Minidote", :update_objects, [[{key, :add, "from :minidote1"}], :ignore])
+    {:ok, vc2} = :rpc.call(dc2, :"Elixir.Minidote", :update_objects, [[{key, :add, "from :minidote2"}], :ignore])
+    {:ok, vc3} = :rpc.call(dc3, :"Elixir.Minidote", :update_objects, [[{key, :add, "from :minidote3"}], :ignore])
+
+    # We want to observe all updates made
+    vc4 = Vectorclock.merge(Vectorclock.merge(vc1, vc2), vc3)
+
+    expected_result = ["from :minidote1", "from :minidote2", "from :minidote3"]
+
+    {:ok, [{^key, ^expected_result}], _} = :rpc.call(dc1, :"Elixir.Minidote", :read_objects, [[key], vc4])
+    {:ok, [{^key, ^expected_result}], _} = :rpc.call(dc2, :"Elixir.Minidote", :read_objects, [[key], vc4])
+    {:ok, [{^key, ^expected_result}], _} = :rpc.call(dc3, :"Elixir.Minidote", :read_objects, [[key], vc4])
+
+
+    Enum.map(nodes, &TestSetup.stop_node(&1))
+  end
 end

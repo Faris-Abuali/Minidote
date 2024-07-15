@@ -54,8 +54,6 @@ defmodule CausalBroadcastWaiting do
         {new_pending, new_vc} = deliver_pending(state, pending, state[:vc])
         {:noreply, %{state | :pending => new_pending, :vc => new_vc}}
     end
-
-    {:noreply, state}
   end
 
   def deliver_pending(state, pending, vc) do

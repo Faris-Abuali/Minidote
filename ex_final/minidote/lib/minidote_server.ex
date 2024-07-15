@@ -153,7 +153,7 @@ defmodule Minidote.Server do
     updated_kv_store =
       List.foldl(key_updated_crdt_pairs, state.key_value_store, fn {key, updated_crdt},
                                                                    kv_store ->
-        %{kv_store | key => updated_crdt}
+        Map.put(kv_store, key, updated_crdt)
       end)
 
     %{state | :key_value_store => updated_kv_store}
