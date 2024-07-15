@@ -6,14 +6,19 @@ defmodule Minidote.Server do
   The API documentation for `Minidote.Server`.
   """
 
-  # @typep state :: %{
-  #          required(:vc) => Minidote.clock(),
-  #          required(:key_value_store) => %{optional(Minidote.key()) => :antidote_crdt.value()},
-  #          required(:pending_requests) =>
-  #            MapSet.t({Process.dest(), Minidote.clock(), [{Minidote.key(), atom(), any()}]}),
-  #          required(:broadcast_layer) => any()
-  #          # should be CausalBroadcastWaiting/CausalBroadcastNonWaiting
-  #        }
+  @type read_request() :: {:read_objects, [Minidote.key()], Vectorclock.t()}
+  @type update_request() ::
+           {:update_objects, [{Minidote.key(), atom(), term()}], Vectorclock.t()}
+
+  @type read_response() ::
+           {:ok, [{Minidote.key(), term()}], Vectorclock.t()}
+           | {:error, :invalid_key, Minidote.key()}
+
+  @type update_response() ::
+           {:ok, Vectorclock.t()} | {:error, any()}
+
+  @type effect_request() ::
+           {:apply_effects, [{Minidote.key(), :antidote_crdt.effect()}], Vectorclock.t()}
 
   @opaque state() :: %{
             required(:broadcast_layer) => any(),
@@ -45,11 +50,14 @@ defmodule Minidote.Server do
   end
 
   @impl true
+  @spec handle_call(:ping, GenServer.from(), state()) :: {:reply, {:pong, pid()}, state()}
   def handle_call(:ping, _, state) do
     {:reply, {:pong, self()}, state}
   end
 
   @impl true
+  @spec handle_call(read_request(), GenServer.from(), Minidote.clock()) ::
+          {:reply, read_response(), state()} | {:noreply, state()}
   def handle_call(request = {:read_objects, objects, caller_clock}, from, state) do
     current_clock = state.vc
 
@@ -79,6 +87,8 @@ defmodule Minidote.Server do
   end
 
   @impl true
+  @spec handle_call(update_request(), GenServer.from(), state()) ::
+          {:reply, update_response(), state()} | {:noreply, state()}
   def handle_call(request = {:update_objects, updates, caller_clock}, from, state) do
     current_clock = state.vc
 
@@ -116,6 +126,7 @@ defmodule Minidote.Server do
 
   # def handle_call({:deliver, {:apply_effects, key_effect_pairs, sender_clock}}, _from, state) do
   @impl true
+  @spec handle_cast({:deliver, effect_request()}, state()) :: {:noreply, state()}
   def handle_cast({:deliver, {:apply_effects, key_effect_pairs, sender_clock}}, state) do
     if Vectorclock.lt(state.vc, sender_clock) do
       updated_clock = Vectorclock.merge(sender_clock, state.vc)
