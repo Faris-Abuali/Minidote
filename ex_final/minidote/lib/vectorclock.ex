@@ -36,4 +36,9 @@ defmodule Vectorclock do
   def merge(vc1, vc2) do
     Map.merge(vc1, vc2, fn _key, v1, v2 -> max(v1, v2) end)
   end
+
+  @spec to_string(Vectorclock.t()) :: String.t()
+  def to_string(vc) do
+    inspect(vc)
+  end
 end
