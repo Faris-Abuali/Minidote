@@ -6,8 +6,8 @@ defmodule CausalBroadcastWaiting do
   ##############
   # PUBLIC API
   ##############
-  def start_link(link_layer, respond_to) do
-    GenServer.start_link(__MODULE__, {link_layer, respond_to})
+  def start_link(respond_to) do
+    GenServer.start_link(__MODULE__, respond_to)
   end
 
   def broadcast(pid, message) do
@@ -18,12 +18,19 @@ defmodule CausalBroadcastWaiting do
   # TO IMPLEMENT
   ##############
 
-  # given a link layer and a respond to process
-  # add the process to the link layer to make it discoverable
-  def init({link_layer, respond_to}) do
+  # given a respond_to process
+  # initialize the link layer and add the process to make it discoverable
+  def init(respond_to) do
+    # Start the link layer
+    {:ok, link_layer} = LinkLayerDistr.start_link(:minidote)
+
+    # Start the reliable broadcast
     {:ok, rb} = ReliableBroadcast.start_link(link_layer, self())
+
+    # Get the node id
     {:ok, this_node} = LinkLayer.this_node(link_layer)
 
+    # Initialize the state and return it
     {:ok,
      %{
        :rb => rb,

@@ -20,3 +20,12 @@ $ patch deps/antidote_crdt/src/antidote_crdt.erl < patches/export_typ.patch
 patching file 'deps/antidote_crdt/src/antidote_crdt.erl'
 $ mix deps.compile; mix dialyzer.clean; mix dialyzer 
 ```
+
+```
+key = {"location", :antidote_crdt_set_go, "mensa"}
+
+Minidote.update_objects([{key, :add, 83}], :ignore)
+Minidote.update_objects([{key, :add, "From 2"}], :ignore)
+
+Minidote.read_objects([key], :ignore)
+```

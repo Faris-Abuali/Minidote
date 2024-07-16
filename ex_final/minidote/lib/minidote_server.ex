@@ -34,13 +34,12 @@ defmodule Minidote.Server do
     GenServer.start_link(Minidote.Server, [], name: server_name)
   end
 
+  # Once the GenServer is started, the init/1 callback is invoked to initialize the process state.
   @spec init(any()) :: {:ok, state()}
   @impl true
   def init(_) do
-    # FIXME the link layer should be initialized in the broadcast layer
-    {:ok, link_layer} = LinkLayerDistr.start_link(:minidote)
-    {:ok, causal_broadcast} = CausalBroadcastWaiting.start_link(link_layer, self())
-    # the state of the GenServer is: tuple of link_layer and respond_to
+    {:ok, causal_broadcast} = CausalBroadcastWaiting.start_link(self())
+
     {:ok,
      %{
        :vc => Vectorclock.new(),
