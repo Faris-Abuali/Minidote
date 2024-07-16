@@ -7,6 +7,7 @@ defmodule Minidote.Server do
   """
 
   @type read_request() :: {:read_objects, [Minidote.key()], Vectorclock.t()}
+
   @type update_request() ::
           {:update_objects, [{Minidote.key(), atom(), term()}], Vectorclock.t()}
 
@@ -91,6 +92,10 @@ defmodule Minidote.Server do
         err -> {:reply, err, state}
       end
     else
+      Logger.info(
+        "Cannot currently serve read request at #{Vectorclock.to_string(current_clock)}"
+      )
+
       updated_state = %{
         state
         | :pending_requests => MapSet.put(state.pending_requests, {from, request})
@@ -107,14 +112,13 @@ defmodule Minidote.Server do
     current_clock = state.vc
 
     if can_serve_request(caller_clock, current_clock) do
-      # key_effect_pairs = Enum.reduce_while(updates, {:ok, []}, fn
       key_effect_pairs =
         Enum.reduce_while(updates, {:ok, []}, fn
           {key = {_, crdt_type, _}, op, arg}, {:ok, acc} ->
             case :antidote_crdt.downstream(
                    crdt_type,
                    {op, arg},
-                   state.key_value_store[key] || :ignore
+                   Map.get(state.key_value_store, key, :antidote_crdt.new(crdt_type))
                  ) do
               {:ok, eff} -> {:cont, {:ok, [{key, eff} | acc]}}
               err = {:error, _} -> {:halt, err}
@@ -153,10 +157,13 @@ defmodule Minidote.Server do
   @impl true
   @spec handle_cast({:deliver, effect_request()}, state()) :: {:noreply, state()}
   def handle_cast({:deliver, {:apply_effects, key_effect_pairs, sender_clock}}, state) do
+    Logger.info("Received effects on #{Vectorclock.to_string(sender_clock)}")
+
     if Vectorclock.lt(state.vc, sender_clock) do
       updated_clock = Vectorclock.merge(sender_clock, state.vc)
       updated_state = apply_effects(key_effect_pairs, state)
       updated_state = %{updated_state | :vc => updated_clock}
+      updated_state = serve_pending_requests(updated_state)
       {:noreply, updated_state}
     else
       {:noreply, state}
@@ -174,6 +181,9 @@ defmodule Minidote.Server do
 
   @spec apply_effects([{Minidote.key(), :antidote_crdt.effect()}], state()) :: state()
   defp apply_effects(key_effect_pairs, state) do
+    # print out the key_effect_pairs
+    Logger.info("Applying effects: #{inspect(key_effect_pairs)}")
+
     key_updated_crdt_pairs =
       Enum.reduce_while(key_effect_pairs, state, fn
         {key = {_, crdt_type, _}, effect}, state ->
@@ -181,7 +191,7 @@ defmodule Minidote.Server do
             :antidote_crdt.update(
               crdt_type,
               effect,
-              state.key_value_store[key] || :antidote_crdt.new(crdt_type)
+              Map.get(state.key_value_store, key, :antidote_crdt.new(crdt_type))
             )
 
           {:cont, Map.put(state, key, updated_crdt)}
@@ -201,5 +211,30 @@ defmodule Minidote.Server do
       unknown_err ->
         Logger.warning("Failed to apply effects: #{unknown_err}")
     end
+  end
+
+  @spec serve_pending_requests(state()) :: state()
+  defp serve_pending_requests(state) do
+    requests = state.pending_requests
+
+    Enum.reduce(requests, %{state | :pending_requests => MapSet.new()}, fn
+      {client, request}, current_state ->
+        case handle_call(request, client, current_state) do
+          # The replica served the request, all we need to do now is forward the response
+          # back to the client that first issued it.
+          {:reply, result, updated_state} ->
+            Logger.info(
+              "Served Request #{inspect(request)} from #{inspect(client)} at #{Vectorclock.to_string(updated_state.vc)}"
+            )
+
+            GenServer.reply(client, result)
+            updated_state
+
+          # The server is still unable to server this request
+          # (i.e. the vc of the request might be larger that the server's vc)
+          {:noreply, updated_state} ->
+            updated_state
+        end
+    end)
   end
 end
