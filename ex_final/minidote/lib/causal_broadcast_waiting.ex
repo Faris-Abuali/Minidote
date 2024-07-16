@@ -36,7 +36,7 @@ defmodule CausalBroadcastWaiting do
 
   def handle_call({:rco_broadcast, msg}, _from, state) do
     # deliver self
-    send(state[:respond_to], {:deliver, msg})
+    GenServer.cast(state[:respond_to], {:deliver, msg})
 
     # broadcast
     ReliableBroadcast.broadcast(state[:rb], {state[:self], state[:vc], msg})
@@ -73,7 +73,7 @@ defmodule CausalBroadcastWaiting do
         new_vc =
           :sets.fold(
             fn {q, _, m}, vca ->
-              send(state[:respond_to], {:deliver, m})
+              GenServer.cast(state[:respond_to], {:deliver, m})
               Vectorclock.increment(vca, q)
             end,
             vc,
