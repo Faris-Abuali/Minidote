@@ -8,17 +8,17 @@ defmodule Minidote.Server do
 
   @type read_request() :: {:read_objects, [Minidote.key()], Vectorclock.t()}
   @type update_request() ::
-           {:update_objects, [{Minidote.key(), atom(), term()}], Vectorclock.t()}
+          {:update_objects, [{Minidote.key(), atom(), term()}], Vectorclock.t()}
 
   @type read_response() ::
-           {:ok, [{Minidote.key(), term()}], Vectorclock.t()}
-           | {:error, :invalid_key, Minidote.key()}
+          {:ok, [{Minidote.key(), term()}], Vectorclock.t()}
+          | {:error, :invalid_key, Minidote.key()}
 
   @type update_response() ::
-           {:ok, Vectorclock.t()} | {:error, any()}
+          {:ok, Vectorclock.t()} | {:error, any()}
 
   @type effect_request() ::
-           {:apply_effects, [{Minidote.key(), :antidote_crdt.effect()}], Vectorclock.t()}
+          {:apply_effects, [{Minidote.key(), :antidote_crdt.effect()}], Vectorclock.t()}
 
   @opaque state() :: %{
             required(:broadcast_layer) => any(),
@@ -49,6 +49,10 @@ defmodule Minidote.Server do
      }}
   end
 
+  @spec can_serve_request(:ignore | Minidote.clock(), Minidote.clock()) :: boolean()
+  defp can_serve_request(:ignore, _), do: true
+  defp can_serve_request(vc1, vc2), do: Vectorclock.leq(vc1, vc2)
+
   @impl true
   @spec handle_call(:ping, GenServer.from(), state()) :: {:reply, {:pong, pid()}, state()}
   def handle_call(:ping, _, state) do
@@ -61,21 +65,31 @@ defmodule Minidote.Server do
   def handle_call(request = {:read_objects, objects, caller_clock}, from, state) do
     current_clock = state.vc
 
-    if caller_clock == :ignore || Vectorclock.leq(caller_clock, current_clock) do
+    if can_serve_request(caller_clock, current_clock) do
       results =
-        for key = {_, crdt_type, _} <- objects do
-          case state.key_value_store[key] do
-            nil ->
-              crdt = :antidote_crdt.new(crdt_type)
-              {key, :antidote_crdt.value(crdt_type, crdt)}
+        Enum.reduce_while(objects, {:ok, []}, fn
+          key = {_, crdt_type, _}, {:ok, acc} ->
+            value =
+              case state.key_value_store[key] do
+                nil ->
+                  crdt = :antidote_crdt.new(crdt_type)
+                  :antidote_crdt.value(crdt_type, crdt)
 
-            crdt ->
-              {key, :antidote_crdt.value(crdt_type, crdt)}
-          end
-        end
+                crdt ->
+                  :antidote_crdt.value(crdt_type, crdt)
+              end
+
+            {:cont, {:ok, [{key, value} | acc]}}
+
+          invalid_key, _ ->
+            {:halt, {:error, :invalid_key, invalid_key}}
+        end)
 
       # NOTE: clock does not have to be advanced for read ops
-      {:reply, {:ok, results, current_clock}, state}
+      case results do
+        {:ok, response} -> {:reply, {:ok, Enum.reverse(response), current_clock}, state}
+        err -> {:reply, err, state}
+      end
     else
       updated_state = %{
         state
@@ -92,26 +106,38 @@ defmodule Minidote.Server do
   def handle_call(request = {:update_objects, updates, caller_clock}, from, state) do
     current_clock = state.vc
 
-    if caller_clock == :ignore || Vectorclock.leq(caller_clock, current_clock) do
-      updated_clock = Vectorclock.increment(current_clock, self())
-
+    if can_serve_request(caller_clock, current_clock) do
+      # key_effect_pairs = Enum.reduce_while(updates, {:ok, []}, fn
       key_effect_pairs =
-        for {key = {_, crdt_typ, _}, op, arg} <- updates do
-          {:ok, eff} =
-            :antidote_crdt.downstream(crdt_typ, {op, arg}, state.key_value_store[key] || :ignore)
+        Enum.reduce_while(updates, {:ok, []}, fn
+          {key = {_, crdt_type, _}, op, arg}, {:ok, acc} ->
+            case :antidote_crdt.downstream(
+                   crdt_type,
+                   {op, arg},
+                   state.key_value_store[key] || :ignore
+                 ) do
+              {:ok, eff} -> {:cont, {:ok, [{key, eff} | acc]}}
+              err = {:error, _} -> {:halt, err}
+            end
 
-          {key, eff}
-        end
+          invalid_op, _ ->
+            {:halt, {:error, :invalid_update, invalid_op}}
+        end)
 
-      updated_state = apply_effects(key_effect_pairs, state)
-      updated_state = %{updated_state | :vc => updated_clock}
+      case key_effect_pairs do
+        {:ok, effs} ->
+          updated_clock = Vectorclock.increment(current_clock, self())
 
-      CausalBroadcastWaiting.broadcast(
-        state.broadcast_layer,
-        {:apply_effects, key_effect_pairs, updated_clock}
-      )
+          CausalBroadcastWaiting.broadcast(
+            state.broadcast_layer,
+            {:apply_effects, Enum.reverse(effs), updated_clock}
+          )
 
-      {:reply, {:ok, updated_clock}, updated_state}
+          {:reply, {:ok, updated_clock}, state}
+
+        err ->
+          {:reply, err, state}
+      end
     else
       # NOTE: caller has seen a later database version than we have available
       # we need to observe the previous updates before we can respond to the client.
@@ -124,7 +150,6 @@ defmodule Minidote.Server do
     end
   end
 
-  # def handle_call({:deliver, {:apply_effects, key_effect_pairs, sender_clock}}, _from, state) do
   @impl true
   @spec handle_cast({:deliver, effect_request()}, state()) :: {:noreply, state()}
   def handle_cast({:deliver, {:apply_effects, key_effect_pairs, sender_clock}}, state) do
@@ -150,23 +175,31 @@ defmodule Minidote.Server do
   @spec apply_effects([{Minidote.key(), :antidote_crdt.effect()}], state()) :: state()
   defp apply_effects(key_effect_pairs, state) do
     key_updated_crdt_pairs =
-      for {key = {_, crdt_type, _}, effect} <- key_effect_pairs do
-        {:ok, updated_crdt} =
-          :antidote_crdt.update(
-            crdt_type,
-            effect,
-            state.key_value_store[key] || :antidote_crdt.new(crdt_type)
-          )
+      Enum.reduce_while(key_effect_pairs, state, fn
+        {key = {_, crdt_type, _}, effect}, state ->
+          {:ok, updated_crdt} =
+            :antidote_crdt.update(
+              crdt_type,
+              effect,
+              state.key_value_store[key] || :antidote_crdt.new(crdt_type)
+            )
 
-        {key, updated_crdt}
-      end
+          {:cont, Map.put(state, key, updated_crdt)}
 
-    updated_kv_store =
-      List.foldl(key_updated_crdt_pairs, state.key_value_store, fn {key, updated_crdt},
-                                                                   kv_store ->
-        Map.put(kv_store, key, updated_crdt)
+        invalid_key_eff, _ ->
+          {:halt, {:error, :invalid_key_eff, invalid_key_eff}}
       end)
 
-    %{state | :key_value_store => updated_kv_store}
+    case key_updated_crdt_pairs do
+      {:error, :invalid_key_eff, invalid_key_eff} ->
+        Logger.warning("Invalid Key/Effect pair: #{invalid_key_eff}")
+        state
+
+      updated_kv_store when is_map(updated_kv_store) ->
+        %{state | :key_value_store => updated_kv_store}
+
+      unknown_err ->
+        Logger.warning("Failed to apply effects: #{unknown_err}")
+    end
   end
 end
