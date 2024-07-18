@@ -155,4 +155,44 @@ defmodule MinidoteTest do
 
     Enum.map(nodes, &TestSetup.stop_node(&1))
   end
+
+  test "simple pending request test" do
+    key = {"location", :antidote_crdt_flag_ew, "mensa"}
+
+    (nodes = [dc1, dc2]) = [
+      TestSetup.start_node(:minidote1),
+      TestSetup.start_node(:minidote2)
+    ]
+
+    {:pong, dc1_pid} = :rpc.call(dc1, :"Elixir.Minidote", :ping, [])
+    {:pong, dc2_pid} = :rpc.call(dc2, :"Elixir.Minidote", :ping, [])
+
+    vc = Vectorclock.increment(Vectorclock.new(), dc2_pid)
+
+    Enum.each(nodes, fn dc ->
+      {:ok, [{^key, false}], _} =
+        :rpc.call(dc, :"Elixir.Minidote", :read_objects, [[key], :ignore])
+    end)
+
+    # a client sends a read request to dc1, but dc1 cannot serve the request
+    # because the request has an advanced version of vectroclock
+    do_read =
+      Task.async(fn ->
+        :rpc.call(dc1, :"Elixir.Minidote", :read_objects, [[key], vc])
+      end)
+
+    # # Make sure that the request is inserted into the pending set
+    # Process.sleep(1000)
+
+    # Issue an update request to dc2. Once dc2 has processed the request,
+    # it will broadcast the update to all other replicas (dc1).
+    do_update =
+      :rpc.call(dc2, :"Elixir.Minidote", :update_objects, [[{key, :enable, {}}], :ignore])
+
+    # Once dc1 receives the update, it should server the request by setting
+    # the value of the flag to true.
+    {:ok, [{^key, true}], _} = Task.await(do_read)
+
+    Enum.map(nodes, &TestSetup.stop_node(&1))
+  end
 end
