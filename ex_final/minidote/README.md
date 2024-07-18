@@ -48,3 +48,9 @@ Minidote.read_objects([key], :ignore)
         - attempt to broadcast to replica, remove replica from set if received an ack back.
     - but what if the node in charge of tracking acknowledgements crashes?
     - do other nodes need to handle acknowledgements for this update as well?
+
+
+<!-- Temporary commands -->
+```
+mix test test/persistent_log_test.exs
+```

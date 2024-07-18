@@ -39,8 +39,6 @@ defmodule CrdtTest do
     # to get the new value, use value again
     counter_value = :antidote_crdt.value(typ, counter_crdt)
     ^counter_value = 9
-
-    IO.inspect(counter_value)
   end
 
 end

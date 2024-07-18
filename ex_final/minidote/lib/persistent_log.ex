@@ -23,12 +23,14 @@ defmodule PersistentLog do
 
     log_path = get_log_path(server_name)
 
+    # Open a disk log file to prepare for reading or wrtiting
     open_result =
       :disk_log.open(
         name: String.to_charlist(server_name),
         file: log_path,
         type: :halt,
-        size: 1_048_576 # 1 MB
+        # 1 MB
+        size: 1_048_576
       )
 
     case open_result do
@@ -52,25 +54,21 @@ defmodule PersistentLog do
           state()
         ) ::
           {:reply, :ok | {:error, any()}, state()}
+
   def handle_call({:persist, operation}, _from, state) do
-    # Open a new disk_log file for reading or writing.
-    # log name: my_halt_log.
-    # log file name: "my_log_file.log".
-    # log type: halt.
-    # log size: 1 MB.
+    log_result = :disk_log.log(state.log, operation)
 
-    trylogres = :disk_log.log(state.log, operation)
+    response =
+      with :ok <- log_result, :ok <- :disk_log.sync(state.log) do
+        :ok
+      else
+        err ->
+          Logger.error("Failed to open disk_log: #{inspect(err)}")
+          err
+      end
 
-    IO.inspect(trylogres)
-
-    case trylogres do
-      :ok ->
-        {:reply, :ok, state}
-
-      err = {:error, reason} ->
-        Logger.error("Failed to open disk_log: #{inspect(reason)}")
-        {:reply, err, state}
-    end
+    {:reply, response, state}
+    # end
   end
 
   @impl true
