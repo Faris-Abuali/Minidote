@@ -62,7 +62,12 @@ defmodule TestSetup do
 
   @spec stop_nodes([atom]) :: :ok
   def stop_nodes(nodes) do
-    Enum.each(nodes, &:slave.stop/1)
+    Enum.each(nodes, fn node ->
+      # Clear the log for each replica, so that the tests don't interfere with/corrupt logs.
+      :rpc.call(node, :"Elixir.Minidote", :unsafe_clear_log, [])
+      :slave.stop(node)
+    end)
+    # Enum.each(nodes, &:slave.stop/1)
   end
 
   def mock_link_layer(nodes, options) do

@@ -5,7 +5,11 @@ defmodule PersistentLog do
 
   @typep log_updates() :: [{Minidote.key(), atom(), any()}]
   @typep log_initial_state() :: %{optional(Minidote.key()) => :antidote_crdt.crdt()}
-  @typep state() :: %{initial_state: log_initial_state(), updates: log_updates()}
+  @typep state() :: %{
+           initial_state: log_initial_state(),
+           updates: log_updates(),
+           log_path: Path.t()
+         }
   # TODO: More precise type for this
   @type entries() :: any()
 
@@ -35,11 +39,11 @@ defmodule PersistentLog do
 
     case open_result do
       {:ok, log} ->
-        {:ok, %{log: log, respond_to: respond_to}}
+        {:ok, %{log: log, respond_to: respond_to, log_path: log_path}}
 
       {:repaired, log, _recovered, _bad_chunks} ->
         Logger.warning("Log file was corrupted and has been repaired")
-        {:ok, %{log: log, respond_to: respond_to}}
+        {:ok, %{log: log, respond_to: respond_to, log_path: log_path}}
 
       err = {:error, reason} ->
         Logger.error("Failed to open log file: #{inspect(reason)}")
@@ -97,5 +101,24 @@ defmodule PersistentLog do
         Logger.warning("Encountered #{bad_bytes} bad bytes while reading chunk from log.")
         read_chunks(log, next_cont, acc ++ terms)
     end
+  end
+
+  @impl true
+  def handle_cast(:unsafe_clear_log, state) do
+    case File.rm(state.log_path) do
+      {:error, err} ->
+        Logger.error("Error while clearing log #{inspect(state.log_path)}: #{inspect(err)}")
+
+      _ ->
+        nil
+    end
+  end
+
+  def persist(server, operation) do
+    GenServer.call(server, {:persist, operation})
+  end
+
+  def get_entries(server) do
+    GenServer.call(server, :get_entries)
   end
 end

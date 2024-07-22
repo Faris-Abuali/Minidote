@@ -24,4 +24,8 @@ defmodule Minidote do
   def ping do
     GenServer.call(Minidote.Server, :ping)
   end
+
+  def unsafe_clear_log do
+    GenServer.cast(Minidote.Server, :unsafe_clear_log)
+  end
 end

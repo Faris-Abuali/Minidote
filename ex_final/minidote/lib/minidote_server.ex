@@ -26,7 +26,8 @@ defmodule Minidote.Server do
             required(:key_value_store) => %{optional(Minidote.key()) => :antidote_crdt.crdt()},
             required(:pending_requests) =>
               MapSet.t({Process.dest(), Minidote.clock(), [{Minidote.key(), atom(), any()}]}),
-            required(:vc) => Vectorclock.t()
+            required(:vc) => Vectorclock.t(),
+            required(:log) => pid()
           }
 
   def start_link(server_name) do
@@ -40,12 +41,21 @@ defmodule Minidote.Server do
   def init(_) do
     {:ok, causal_broadcast} = CausalBroadcastWaiting.start_link(self())
 
+    {:ok, log} =
+      PersistentLog.start_link(
+        self(),
+        node()
+        |> Atom.to_string()
+        |> String.replace("@", "_")
+      )
+
     {:ok,
      %{
        :vc => Vectorclock.new(),
        :key_value_store => %{},
        :pending_requests => MapSet.new(),
-       :broadcast_layer => causal_broadcast
+       :broadcast_layer => causal_broadcast,
+       :log => log
      }}
   end
 
@@ -111,36 +121,39 @@ defmodule Minidote.Server do
     current_clock = state.vc
 
     if can_serve_request(caller_clock, current_clock) do
+      updated_clock = Vectorclock.increment(current_clock, self())
+
       key_effect_pairs =
-        Enum.reduce_while(updates, {:ok, []}, fn
-          {key = {_, crdt_type, _}, op, arg}, {:ok, acc} ->
+        Enum.reduce_while(updates, {:ok, [], []}, fn
+          {key = {_, crdt_type, _}, op, arg}, {:ok, acc, ops} ->
             case :antidote_crdt.downstream(
                    crdt_type,
                    {op, arg},
                    Map.get(state.key_value_store, key, :antidote_crdt.new(crdt_type))
                  ) do
-              {:ok, eff} -> {:cont, {:ok, [{key, eff} | acc]}}
-              err = {:error, _} -> {:halt, err}
+              {:ok, eff} ->
+                {:cont, {:ok, [{key, eff} | acc], [{updated_clock, key, op, arg} | ops]}}
+
+              err = {:error, _} ->
+                {:halt, err}
             end
 
           invalid_op, _ ->
             {:halt, {:error, :invalid_update, invalid_op}}
         end)
 
-      case key_effect_pairs do
-        {:ok, effs} ->
-          updated_clock = Vectorclock.increment(current_clock, self())
-
+      result =
+        with {:ok, effs, ops} <- key_effect_pairs,
+             :ok <- PersistentLog.persist(state.log, Enum.reverse(ops)) do
           CausalBroadcastWaiting.broadcast(
             state.broadcast_layer,
             {:apply_effects, Enum.reverse(effs), updated_clock}
           )
 
-          {:reply, {:ok, updated_clock}, state}
+          {:ok, updated_clock}
+        end
 
-        err ->
-          {:reply, err, state}
-      end
+      {:reply, result, state}
     else
       # NOTE: caller has seen a later database version than we have available
       # we need to observe the previous updates before we can respond to the client.
@@ -167,6 +180,10 @@ defmodule Minidote.Server do
     else
       {:noreply, state}
     end
+  end
+
+  def handle_cast(:unsafe_clear_log, state) do
+    GenServer.cast(state.log, :unsafe_clear_log)
   end
 
   # def handle_call(_msg, _from, state) do
