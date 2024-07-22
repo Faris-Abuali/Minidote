@@ -11,7 +11,7 @@ defmodule PersistentLog do
            log_path: Path.t()
          }
   # TODO: More precise type for this
-  @type entries() :: any()
+  @type entries() :: [[{Vectorclock.t(), Minidote.key(), atom(), term()}]]
 
   def get_log_path(server_name) do
     :filename.join(~c"logs", ~c"#{server_name}.LOG")
@@ -106,11 +106,12 @@ defmodule PersistentLog do
   @impl true
   def handle_cast(:unsafe_clear_log, state) do
     case File.rm(state.log_path) do
-      {:error, err} ->
-        Logger.error("Error while clearing log #{inspect(state.log_path)}: #{inspect(err)}")
+      {:error, reason} ->
+        Logger.error("Error while clearing log #{inspect(state.log_path)}: #{inspect(reason)}")
+        {:noreply, state}
 
       _ ->
-        nil
+        {:noreply, state}
     end
   end
 
@@ -118,6 +119,7 @@ defmodule PersistentLog do
     GenServer.call(server, {:persist, operation})
   end
 
+  @spec get_entries(any()) :: {:ok, entries()} | {:error, any()}
   def get_entries(server) do
     GenServer.call(server, :get_entries)
   end

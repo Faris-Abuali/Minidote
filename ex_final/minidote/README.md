@@ -53,4 +53,6 @@ Minidote.read_objects([key], :ignore)
 <!-- Temporary commands -->
 ```
 mix test test/persistent_log_test.exs
+
+mix run lib/read_log.exs logs/minidote1_127.0.0.1.LOG
 ```

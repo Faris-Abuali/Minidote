@@ -49,19 +49,66 @@ defmodule Minidote.Server do
         |> String.replace("@", "_")
       )
 
-    {:ok,
-     %{
-       :vc => Vectorclock.new(),
-       :key_value_store => %{},
-       :pending_requests => MapSet.new(),
-       :broadcast_layer => causal_broadcast,
-       :log => log
-     }}
+    init_state = %{
+      :vc => Vectorclock.new(),
+      :key_value_store => %{},
+      :pending_requests => MapSet.new(),
+      :broadcast_layer => causal_broadcast,
+      :log => log
+    }
+
+    # Initialize the state of the server from the disk log file if it exists
+    # init_state_from_log(init_state)
+    {:ok, init_state}
+  end
+
+  # Initializes the state of the server from the disk log file if it exists
+  @spec init_state_from_log(state()) :: {:ok, state()} | {:stop, term()}
+  defp init_state_from_log(state) do
+    case PersistentLog.get_entries(state.log) do
+        {:ok, transaction_entries} ->
+          Enum.reduce_while(transaction_entries, {:ok, state}, fn
+            transaction, {:ok, current_state} ->
+              case serve_update_request(transaction, current_state) do
+                {:ok, updated_state} -> {:cont, {:ok, updated_state}}
+                {:error, err} -> {:halt, {:stop, err}}
+              end
+          end)
+
+        {:error, err} ->
+          {:stop, err}
+      end
   end
 
   @spec can_serve_request(:ignore | Minidote.clock(), Minidote.clock()) :: boolean()
   defp can_serve_request(:ignore, _), do: true
   defp can_serve_request(vc1, vc2), do: Vectorclock.leq(vc1, vc2)
+
+  def serve_update_request(updates, state) do
+    key_effect_pairs =
+      Enum.reduce_while(updates, {:ok, []}, fn
+        {key = {_, crdt_type, _}, op, arg}, {:ok, acc} ->
+          case :antidote_crdt.downstream(
+                 crdt_type,
+                 {op, arg},
+                 Map.get(state.key_value_store, key, :antidote_crdt.new(crdt_type))
+               ) do
+            {:ok, eff} ->
+              {:cont, {:ok, [{key, eff} | acc]}}
+
+            err = {:error, _} ->
+              {:halt, err}
+          end
+
+        invalid_op, _ ->
+          {:halt, {:error, :invalid_update, invalid_op}}
+      end)
+
+    with {:ok, effs, _} <- key_effect_pairs do
+      updated_state = apply_effects(Enum.reverse(effs), state)
+      {:ok, updated_state}
+    end
+  end
 
   @impl true
   @spec handle_call(:ping, GenServer.from(), state()) :: {:reply, {:pong, pid()}, state()}
