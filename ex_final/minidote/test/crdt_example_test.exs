@@ -41,4 +41,22 @@ defmodule CrdtTest do
     ^counter_value = 9
   end
 
+  test "idempotent" do
+    type = :antidote_crdt_set_aw
+    set = :antidote_crdt.new(type)
+
+    {:ok, add_eff} = :antidote_crdt.downstream(type, {:add, "foo"}, set)
+    {:ok, set} = :antidote_crdt.update(type, add_eff, set)# set should contian foo
+
+    ["foo"] = :antidote_crdt.value(type, set)
+
+    {:ok, remove_eff} = :antidote_crdt.downstream(type, {:remove, "foo"}, set)
+    {:ok, set} = :antidote_crdt.update(type, remove_eff, set)
+
+    [] = :antidote_crdt.value(type, set)
+
+    {:ok, set} = :antidote_crdt.update(type, add_eff, set)
+    ["foo"] = :antidote_crdt.value(type, set)
+  end
+
 end

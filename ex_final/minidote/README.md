@@ -6,7 +6,8 @@ Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_do
 and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
 be found at <https://hexdocs.pm/minidote>.
 
-## TODOs 
+## TODOs
+
 - [ ] Serve pending requests after incrementing vector clocks
 - [ ]
 
@@ -31,28 +32,37 @@ Minidote.read_objects([key], :ignore)
 ```
 
 ## Questions for Albert
+
 - When should we prune the log?
-    - Note: A quick and efficient way to compare states, is to compare the vector clocks of replicas instead of sending the entire state.
+  - Note: A quick and efficient way to compare states, is to compare the vector clocks of replicas instead of sending the entire state.
 
 - Can the logs diverge or should they always be strongly consistent.
-    - i.e. Which is sufficient, can we just ask for the logs of all replicas, and concatenate/combine? the updates of each together, or do we need Raft
+  - i.e. Which is sufficient, can we just ask for the logs of all replicas, and concatenate/combine? the updates of each together, or do we need Raft
 
 - We wanted to implement replicated state machine in the logs themselves. We get a strong consistency but sacrifysing availability.
-    - Which is
+  - Which is
 
+# TODO: ask this once we've formulated it better
 
-# TODO: ask this once we've formulated it better.
 - Is using acknowledgements after broadcasting effects a good idea?
-    - Keep list of updates_to_be_acknowledged :: Map[Update, Set[replica]]
-    - for each update, while updates_to_be_acknowledged[update] is not empty:
-        - attempt to broadcast to replica, remove replica from set if received an ack back.
-    - but what if the node in charge of tracking acknowledgements crashes?
-    - do other nodes need to handle acknowledgements for this update as well?
+  - Keep list of updates_to_be_acknowledged :: Map[Update, Set[replica]]
+  - for each update, while updates_to_be_acknowledged[update] is not empty:
+    - attempt to broadcast to replica, remove replica from set if received an ack back.
+  - but what if the node in charge of tracking acknowledgements crashes?
+  - do other nodes need to handle acknowledgements for this update as well?
 
+- In the tests, starting up a node in the middle (after the first request was issued), it isn't connected to the others.
+
+- Replicas hardcoded in an env variable. (os_or_app_env)
+- used in find_other_nodes, try_connect
+- pings each node in the hardcoded list
+- uses it to display log msgs
+
+- On startup it should join the minidote pg
+- 🤡 We have a test case that fails because if we move one line at a transition, it fails
 
 <!-- Temporary commands -->
 ```
 mix test test/persistent_log_test.exs
-
 mix run lib/read_log.exs logs/minidote1_127.0.0.1.LOG
 ```

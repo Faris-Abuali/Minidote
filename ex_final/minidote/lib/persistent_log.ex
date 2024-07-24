@@ -51,19 +51,24 @@ defmodule PersistentLog do
     end
   end
 
+  # Terminate the log process
+  @impl true
+  def terminate(_reason, state) do
+    :disk_log.close(state.log)
+  end
+
   @impl true
   @spec handle_call(
-          {:persist, [{Vectorclock.t(), Minidote.key(), atom(), term()}]},
+          {:persist, Vectorclock.t(), [{Vectorclock.t(), Minidote.key(), atom(), term()}]},
           GenServer.from(),
           state()
         ) ::
           {:reply, :ok | {:error, any()}, state()}
 
-  def handle_call({:persist, operation}, _from, state) do
-    log_result = :disk_log.log(state.log, operation)
-
+  def handle_call({:persist, vc, operation}, _from, state) do
     response =
-      with :ok <- log_result, :ok <- :disk_log.sync(state.log) do
+      with :ok <- :disk_log.log(state.log, {vc, operation}),
+           :ok <- :disk_log.sync(state.log) do
         :ok
       else
         err ->
@@ -72,7 +77,6 @@ defmodule PersistentLog do
       end
 
     {:reply, response, state}
-    # end
   end
 
   @impl true
@@ -115,12 +119,40 @@ defmodule PersistentLog do
     end
   end
 
-  def persist(server, operation) do
-    GenServer.call(server, {:persist, operation})
+  def persist(server, vc, operation) do
+    GenServer.call(server, {:persist, vc, operation})
   end
 
   @spec get_entries(any()) :: {:ok, entries()} | {:error, any()}
   def get_entries(server) do
     GenServer.call(server, :get_entries)
   end
+
+  @spec get_entries_between(pid(), Vectorclock.t(), Vectorclock.t()) :: [
+          {Minidote.key(), :antidote_crdt.effect()}
+        ]
+  @spec get_entries_between(
+          Process.dest(),
+          Vectorclock.t(),
+          Vectorclock.t()
+        ) ::
+          {:error, any()}
+          | {:ok, [{Vectorclock.t(), [{Minidote.key(), :antidote_crdt.effect()}]}]}
+  def get_entries_between(server, from_vc, upto_vc) do
+    with {:ok, entries} <- PersistentLog.get_entries(server) do
+      # TODO: Should we flatten the list?
+      {:ok,
+       entries
+       |> Enum.filter(fn {vc, _t} -> Vectorclock.leq(from_vc, vc) end)
+       |> Enum.filter(fn {vc, _t} -> Vectorclock.lt(vc, upto_vc) end)}
+    end
+    # given crashed replica's vc => from_vc
+    # sender's vc => upto_vc
+    # we want everything in between
+    # for each entry, select from_vc <= entry.vc  < upto_vc
+    # because if entry_vc < from_vc then we've already applied that effect.
+    # if entry_vc > upto_vc then we haven't broadcasted it / we just broadcasted it.
+  end
+
+
 end

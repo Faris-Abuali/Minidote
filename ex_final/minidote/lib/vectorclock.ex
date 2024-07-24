@@ -37,6 +37,14 @@ defmodule Vectorclock do
     Map.merge(vc1, vc2, fn _key, v1, v2 -> max(v1, v2) end)
   end
 
+  @spec delta(Vectorclock.t(), Vectorclock.t()) :: non_neg_integer()
+  def delta(vc1, vc2) do
+    vc1
+    |> Map.merge(vc2, fn _key, v1, v2 -> v2 - v1 end)
+    |> Map.values()
+    |> Enum.sum()
+  end
+
   @spec to_string(Vectorclock.t()) :: String.t()
   def to_string(vc) do
     inspect(vc)

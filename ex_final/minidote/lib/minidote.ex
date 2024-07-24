@@ -28,4 +28,8 @@ defmodule Minidote do
   def unsafe_clear_log do
     GenServer.cast(Minidote.Server, :unsafe_clear_log)
   end
+
+  def unsafe_force_crash do
+    GenServer.call(Minidote.Server, :unsafe_force_crash)
+  end
 end
