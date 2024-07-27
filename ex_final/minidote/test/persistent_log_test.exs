@@ -76,17 +76,10 @@ defmodule PersistentLogTest do
   end
 
   test "freshly spawned replica should be able to be consistent with others" do
-    # key = {"shopping_cart", :antidote_crdt_set_aw, "minizon"}
     key = {"shopping_cart", :antidote_crdt_set_aw, "minizon"}
 
-    dc1 = TestSetup.start_node(:minidote1_minizon)
-    # dc2 = TestSetup.start_node(:minidote2_minizon)
-
-    # # Force crash dc2
-    # force_crash =
-    #   Task.async(fn ->
-    #     :rpc.call(dc2, :"Elixir.Minidote", :unsafe_force_crash, [])
-    #   end)
+    dc1 = TestSetup.start_node(:minidote1)
+    dc2 = TestSetup.start_node(:minidote2)
 
     {:ok, vc1} =
       :rpc.call(dc1, :"Elixir.Minidote", :update_objects, [
@@ -94,15 +87,11 @@ defmodule PersistentLogTest do
         :ignore
       ])
 
-    dc2 = TestSetup.start_node(:minidote2_minizon)
-
     {:ok, vc1} =
       :rpc.call(dc1, :"Elixir.Minidote", :update_objects, [
         [{key, :add, "faris"}],
         :ignore
       ])
-
-    # Task.await(force_crash)
 
     {:ok, vc2} =
       :rpc.call(dc1, :"Elixir.Minidote", :update_objects, [
@@ -110,29 +99,11 @@ defmodule PersistentLogTest do
         :ignore
       ])
 
-    # {:ok, [{^key, ["bar", "foo"]}], _} =
-    #   :rpc.call(dc1, :"Elixir.Minidote", :read_objects, [
-    #     [key],
-    #     :ignore
-    #   ])
-
     {:ok, [{^key, ["bar", "faris", "foo"]}], _} =
       :rpc.call(dc2, :"Elixir.Minidote", :read_objects, [
         [key],
         :ignore
       ])
-
-    # {:ok, vc3} =
-    #   :rpc.call(dc1, :"Elixir.Minidote", :update_objects, [
-    #     [{key, :add, "baz"}],
-    #     :ignore
-    #   ])
-
-    # {:ok, [{^key, ["bar", "baz", "foo"]}], _} =
-    #   :rpc.call(dc2, :"Elixir.Minidote", :read_objects, [
-    #     [key],
-    #     :ignore
-    #   ])
 
     Enum.map([dc1, dc2], &TestSetup.stop_node(&1))
   end

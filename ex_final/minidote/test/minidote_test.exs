@@ -70,7 +70,7 @@ defmodule MinidoteTest do
       TestSetup.start_node(:minidote3)
     ]
 
-    TestSetup.mock_link_layer(nodes, %{:debug => true})
+    # TestSetup.mock_link_layer(nodes, %{:debug => true})
 
     # Each replica makes some update
     {:ok, vc1} =

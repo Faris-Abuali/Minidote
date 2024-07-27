@@ -1,41 +1,89 @@
 defmodule LinkLayerDistr do
+  require ExUnit.Assertions
   use GenServer
   require Logger
   # Callbacks
+
+  @cookie :Cookie
+
+  @leader_name "MINIDOTE_LEADER"
+               |> System.get_env("minidote1@127.0.0.1")
+               |> String.to_atom()
 
   def start_link(group_name) do
     GenServer.start_link(__MODULE__, group_name)
   end
 
+  def try_connect_to_leader(t \\ 2500, was_disconnected \\ true) do
+    case :net_adm.ping(@leader_name) do
+      :pong ->
+        :ok
+        if was_disconnected do
+          Logger.notice("#{inspect(node())} reestablished connection to leader.")
+        end
+        Process.sleep(t)
+        try_connect_to_leader(2500, false)
+
+      :pang ->
+        duration = min(2 * t, 60000)
+
+        Logger.notice(
+          "#{inspect(node())} Failed to connect to leader, waiting #{duration}ms before reconnecting."
+        )
+
+        Process.sleep(t)
+        try_connect_to_leader(min(2 * t, 60000))
+    end
+  end
+
   @impl true
   def init(group_name) do
-    # initially, try to connect with other erlang nodes
-    # spawn_link(&find_other_nodes/0)
-    :pg.start_link()
+    server_name = node()
+    :erlang.set_cookie(@cookie)
+    :global.register_name(server_name, self())
+
+    {:ok, _} = :pg.start_link()
     :ok = :pg.join(group_name, self())
+    {_ref, _} = :pg.monitor(group_name)
 
-    # subscribe to the group
-    {_ref, current_members} = :pg.monitor(group_name)
+    _pid = spawn_link(fn -> try_connect_to_leader(500, false) end)
+    :global.sync()
 
-    named_members =
-      Enum.map(current_members, fn member ->
-        if member !== self() do
-          {:ok, name} = GenServer.call(member, :this_node_name)
-          {member, name}
-        else
-          {member, node()}
-        end
-      end)
+    members = :pg.get_members(group_name)
+    registered_names = :global.registered_names()
 
-    Logger.notice("#{inspect(node())}: #{inspect(current_members)}")
-    # for member <- :pg.get_members(group_name), member !== self() do
-    # for member <- current_members, member !== self() do
-    #   GenServer.cast(member, :update_nodes)
-    # end
+    # Assertions.assert(Enum.count(members) === Enum.count(registered_names))
 
-    Logger.notice("Connected to node #{inspect(node())}")
+    for member <- registered_names, member !== server_name, do: Node.ping(member)
 
-    {:ok, %{:group_name => group_name, :respond_to => :none, :nodes => named_members}}
+    Logger.notice(
+      "Started #{inspect(server_name)}. Connected to: #{inspect(registered_names)}, #{inspect(members)}"
+    )
+
+    {:ok, %{:group_name => group_name, :respond_to => nil}}
+  end
+
+  @impl true
+  def handle_info({_ref, :join, _group, new_pids}, state) do
+    Logger.notice("#{inspect(node())}: Got notification that #{inspect(new_pids)} just joined.")
+    members = :pg.get_members(state[:group_name])
+
+    new_pids
+    |> Enum.all?(&Enum.member?(members, &1))
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({_ref, :leave, _group, stale_pids}, state) do
+    Logger.notice("#{inspect(node())}: #{inspect(stale_pids)} left the process group.")
+
+    members = :pg.get_members(state[:group_name])
+
+    stale_pids
+    |> Enum.all?(fn i -> not Enum.member?(members, i) end)
+
+    {:noreply, state}
   end
 
   @impl true
@@ -56,11 +104,6 @@ defmodule LinkLayerDistr do
   end
 
   @impl true
-  def handle_call(:this_node_name, _from, state) do
-    {:reply, {:ok, node()}, state}
-  end
-
-  @impl true
   def handle_call(:other_nodes, _from, state) do
     members = :pg.get_members(state[:group_name])
     other_members = for n <- members, n !== self(), do: n
@@ -76,99 +119,5 @@ defmodule LinkLayerDistr do
   def handle_cast({:remote, msg}, state) do
     send(state[:respond_to], msg)
     {:noreply, state}
-  end
-
-  # @impl true
-  # def handle_cast(:update_nodes, state) do
-  #   members = :pg.get_members(state[:group_name])
-
-  #   nodes =
-  #     for member <- members, member !== self() do
-  #       Logger.notice("Asking #{inspect(member)} for its name.")
-  #       {:ok, name} = GenServer.call(member, :this_node_name)
-  #       {member, name}
-  #     end
-
-  #   updated_state = %{state | :nodes => nodes}
-  #   Logger.notice("Connected #{node()} to other nodes: #{inspect(nodes)}")
-  #   {:noreply, updated_state}
-  # end
-
-  @impl true
-  def handle_info({_ref, :join, _group, new_pids}, state) do
-    Logger.notice("#{inspect(node())}: Got notification that #{inspect(new_pids)} just joined.")
-
-    updated_nodes =
-      Enum.map(new_pids, fn member ->
-        Logger.notice("Asking #{inspect(member)} for its name.")
-        {:ok, name} = GenServer.call(member, :this_node_name)
-        {member, name}
-      end)
-
-    updated_state = %{state | :nodes => updated_nodes ++ state.nodes}
-    {:noreply, updated_state}
-  end
-
-  @impl true
-  def handle_info({_ref, :leave, _group, stale_pids}, state) do
-    Logger.notice("#{inspect(node())}: Got notification that #{inspect(stale_pids)} is/are down.")
-
-    updated_state = %{
-      state
-      | :nodes =>
-          Enum.filter(
-            state.nodes,
-            fn {pid, _} -> not Enum.member?(stale_pids, pid) end
-          )
-    }
-
-    {:noreply, updated_state}
-  end
-
-  def find_other_nodes() do
-    nodes = os_or_app_env()
-    Logger.notice("Connecting #{node()} to other nodes: #{inspect(nodes)}")
-    try_connect(nodes, 500)
-  end
-
-  defp try_connect(nodes, t) do
-    {ping, pong} = :lists.partition(fn n -> :pong == :net_adm.ping(n) end, nodes)
-
-    for n <- ping do
-      Logger.notice("Connected to node #{n}")
-    end
-
-    case t > 1000 do
-      true ->
-        for n <- pong do
-          Logger.notice("Failed to connect #{node()} to node #{n}")
-        end
-
-      _ ->
-        :ok
-    end
-
-    case pong do
-      [] ->
-        Logger.notice("Connected to all nodes")
-
-      _ ->
-        :timer.sleep(t)
-        try_connect(pong, min(2 * t, 60000))
-    end
-  end
-
-  def os_or_app_env() do
-    nodes = :string.tokens(:os.getenv(~c"MINIDOTE_NODES", ~c""), ~c",")
-
-    case nodes do
-      ~c"" ->
-        :application.get_env(:microdote, :microdote_nodes, [])
-
-      _ ->
-        for n <- nodes do
-          :erlang.list_to_atom(n)
-        end
-    end
   end
 end

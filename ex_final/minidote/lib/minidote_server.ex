@@ -42,7 +42,7 @@ defmodule Minidote.Server do
   end
 
   # Once the GenServer is started, the init/1 callback is invoked to initialize the process state.
-  @spec init(any()) :: {:ok, state()}
+  @spec init(any()) :: {:ok, state()} | {:stop, term()}
   @impl true
   def init(_) do
     {:ok, causal_broadcast} = CausalBroadcastWaiting.start_link(self())
