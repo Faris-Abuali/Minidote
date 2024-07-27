@@ -2,9 +2,7 @@ defmodule Minidote.Server do
   use GenServer
   require Logger
 
-  @moduledoc """
-  The API documentation for `Minidote.Server`.
-  """
+  @broadcast CausalBroadcastWaiting
 
   @type read_request() :: {:read_objects, [Minidote.key()], Vectorclock.t()}
 
@@ -45,7 +43,7 @@ defmodule Minidote.Server do
   @spec init(any()) :: {:ok, state()} | {:stop, term()}
   @impl true
   def init(_) do
-    {:ok, causal_broadcast} = CausalBroadcastWaiting.start_link(self())
+    {:ok, causal_broadcast} = @broadcast.start_link(self())
 
     {:ok, log} =
       PersistentLog.start_link(
@@ -66,7 +64,6 @@ defmodule Minidote.Server do
     # Initialize the state of the server from the disk log file if it exists
     state = init_state_from_log(init_state)
     Logger.notice("#{node()} finished initializing.")
-    # {:ok, init_state}
     state
   end
 
@@ -97,32 +94,6 @@ defmodule Minidote.Server do
   def terminate(_reason, state) do
     GenServer.stop(state.log)
   end
-
-  # def serve_update_request(updates, state) do
-  #   key_effect_pairs =
-  #     Enum.reduce_while(updates, {:ok, []}, fn
-  #       {key = {_, crdt_type, _}, op, arg}, {:ok, acc} ->
-  #         # case :antidote_crdt.downstream(
-  #         #        crdt_type,
-  #         #        {op, arg},
-  #         #        Map.get(state.key_value_store, key, :antidote_crdt.new(crdt_type))
-  #         #      ) do
-  #         #   {:ok, eff} ->
-  #         #     {:cont, {:ok, [{key, eff} | acc]}}
-
-  #         #   err = {:error, _} ->
-  #         #     {:halt, err}
-  #         # end
-
-  #       invalid_op, _ ->
-  #         {:halt, {:error, :invalid_update, invalid_op}}
-  #     end)
-
-  #   with {:ok, effs, _} <- key_effect_pairs do
-  #     updated_state = apply_effects(Enum.reverse(effs), state)
-  #     {:ok, updated_state}
-  #   end
-  # end
 
   @impl true
   @spec handle_call(:unsafe_force_crash, GenServer.from(), state()) :: :ok
@@ -212,7 +183,7 @@ defmodule Minidote.Server do
       result =
         with {:ok, effs, _ops} <- key_effect_pairs,
              :ok <- PersistentLog.persist(state.log, updated_clock, Enum.reverse(effs)) do
-          CausalBroadcastWaiting.broadcast(
+          @broadcast.broadcast(
             state.broadcast_layer,
             {:apply_effects, self(), Enum.reverse(effs), updated_clock}
           )
@@ -222,7 +193,7 @@ defmodule Minidote.Server do
 
       {:reply, result, state}
     else
-      # NOTE: caller has seen a later database version than we have available
+      # Caller has seen a later database version than we have available
       # we need to observe the previous updates before we can respond to the client.
       updated_state = %{
         state
@@ -301,19 +272,8 @@ defmodule Minidote.Server do
     {:noreply, state}
   end
 
-  # def handle_call(_msg, _from, state) do
-  #   {:reply, :not_implemented, state}
-  # end
-
-  # def handle_info(msg, state) do
-  #   Logger.warning("Unhandled info message: #{inspect(msg)}")
-  #   {:noreply, state}
-  # end
-
   @spec apply_effects([{Minidote.key(), :antidote_crdt.effect()}], state()) :: state()
   defp apply_effects(key_effect_pairs, state) do
-    # print out the key_effect_pairs
-    # Logger.info("Applying effects: #{inspect(key_effect_pairs)}")
 
     key_updated_crdt_pairs =
       Enum.reduce_while(key_effect_pairs, state, fn

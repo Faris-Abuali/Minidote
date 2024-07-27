@@ -42,7 +42,7 @@ defmodule PersistentLog do
         {:ok, %{log: log, respond_to: respond_to, log_path: log_path}}
 
       {:repaired, log, _recovered, _bad_chunks} ->
-        Logger.warning("Log file was corrupted and has been repaired")
+        Logger.warning("Log file was not closed properly, but has been repaired.")
         {:ok, %{log: log, respond_to: respond_to, log_path: log_path}}
 
       err = {:error, reason} ->
