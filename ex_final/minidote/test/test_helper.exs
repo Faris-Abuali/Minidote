@@ -1,0 +1,3 @@
+TestSetup.init()
+
+ExUnit.start()
