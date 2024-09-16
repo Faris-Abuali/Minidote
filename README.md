@@ -39,7 +39,7 @@ mix deps.get
 - `mix.exs`: Elixir project configuration file for dependency management and build configuration.
 
 ## Documentation
-For a detailed explanation of the system architecture, protocols used, and design decisions, refer to the [Project Documentation]().
+For a detailed explanation of the project requirements, architecture, protocols used, and design decisions, refer to the [Project Documentation](https://github.com/Faris-Abuali/Minidote/blob/main/ex-final.pdf).
 
 ## Core
 
